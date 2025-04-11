@@ -82,10 +82,9 @@ std::tuple<float, int> processBLEDevice(BLEDevice peripheral) {
     if (peripheral.manufacturerData(manuDataBuffer, ManuDataLen)) {
       float pressureInPSI = (((manuDataBuffer[10]) << 16 | (manuDataBuffer[9]) << 8 | manuDataBuffer[8]) / 100000.0) * 14.5037738;
       float battery = manuDataBuffer[16];
-      if (battery <= 20) {
+      if (battery <= 20 || (pressureInPSI < 30 && pressureInPSI > 0)) {
         status = 0;
       }
-      
       return std::make_tuple(pressureInPSI, status);
     } 
     else {
@@ -235,6 +234,14 @@ void MatrixDraw(void *parameters) {
 void TPMSScanner(void *parameters) {
   // check if a peripheral has been discovered
   // Serial.println("In TPMSSCanner");
+  float rf_press = 0.0;
+  int rf_status = 1;
+  float lf_press = 0.0;
+  int lf_status = 1;
+  float rr_press = 0.0;
+  int rr_status = 1;
+  float lr_press = 0.0;
+  int lr_status = 1;
   for (;;) {
     BLEDevice peripheral = BLE.available();
     if (peripheral) {
@@ -264,9 +271,8 @@ void TPMSScanner(void *parameters) {
       }
     }
     //Serial.println("No Devices Found");
-    if (lf_press < 30 && lf_press > 0) {
+    if (lf_status == 0) {
       setLED(LF_TIRE, RED);
-      lf_status = 0;
     } 
     else {
       setLED(LF_TIRE, GREEN);
@@ -274,9 +280,8 @@ void TPMSScanner(void *parameters) {
     sendCANMsg(lf_press, 0x1E202627);
     sendCANMsg(lf_status, 0x1E212627);
     
-    if (rf_press < 30 && rf_press > 0) {
+    if (rf_status == 0) {
       setLED(RF_TIRE, RED);
-      rf_status = 0;
     } 
     else {
       setLED(RF_TIRE, GREEN);
@@ -284,9 +289,8 @@ void TPMSScanner(void *parameters) {
     sendCANMsg(rf_press, 0x1E206627);
     sendCANMsg(rf_status, 0x1E216627);
 
-    if (lr_press < 30 && lf_press > 0) {
+    if (lr_status == 0) {
       setLED(LR_TIRE, RED);
-      lr_status = 0;
     } 
     else {
       setLED(LR_TIRE, GREEN);
@@ -294,9 +298,8 @@ void TPMSScanner(void *parameters) {
     sendCANMsg(lr_press, 0x1E20A627);
     sendCANMsg(lr_status, 0x1E21A627);
 
-    if (rr_press < 30 && rr_press > 0) {
+    if (rr_status == 0) {
       setLED(RR_TIRE, RED);
-      rr_status = 0;
     } 
     else {
       setLED(RR_TIRE, GREEN);
