@@ -21,14 +21,6 @@ ModulinoPixels leds;
 ModulinoBuzzer buzzer;
 
 // Set default values for TPMS Sensors
-float rf_press = 0.0;
-int rf_status = 0;
-float lf_press = 0.0;
-int lf_status = 0;
-float rr_press = 0.0;
-int rr_status = 0;
-float lr_press = 0.0;
-int lr_status = 0;
 float fahrenheit = 0.0;
 float humidity = 0;
 float voltage = 0;
@@ -84,7 +76,7 @@ std::tuple<float, int> processBLEDevice(BLEDevice peripheral) {
       float battery = manuDataBuffer[16];
       if (battery <= 20 || (pressureInPSI < 30 && pressureInPSI > 0)) {
         status = 0;
-      }
+      }      
       return std::make_tuple(pressureInPSI, status);
     } 
     else {
@@ -180,7 +172,6 @@ void setup() {
     Serial.println(matrix_draw);
     Serial.println("Failed to create matrix draw loop");
   }
- 
   vTaskStartScheduler();
 }
 
