@@ -22,18 +22,13 @@ ModulinoBuzzer buzzer;
 
 // Set default values for TPMS Sensors
 float rf_press = 0.0;
-float rf_temp = 0.0;
-float rf_battery = 0.0;
+int rf_status = 0;
 float lf_press = 0.0;
-float lf_temp = 0.0;
-float lf_battery = 0.0;
+int lf_status = 0;
 float rr_press = 0.0;
-float rr_temp = 0.0;
-float rr_battery = 0.0;
+int rr_status = 0;
 float lr_press = 0.0;
-float lr_temp = 0.0;
-float lr_battery = 0.0;
-float celsius = 0.0;
+int lr_status = 0;
 float fahrenheit = 0.0;
 float humidity = 0;
 float voltage = 0;
@@ -49,6 +44,10 @@ float voltage2 = 0;
 #define RR_TIRE 7
 #define BRIGHTNESS 10
 
+void setLED(int led, ModulinoColor color) {
+  leds.set(led, color, BRIGHTNESS);
+  leds.show();
+}
 
 void floatToHexArray(float value, unsigned char *hexArray) {
   // Function to convert float values to hex arrays to be sent as a CAN message.
@@ -72,39 +71,40 @@ void sendCANMsg(float value, uint32_t canId) {
   delay(5);
 }
 
-std::tuple<float, float, float> processBLEDevice(BLEDevice peripheral) {
+std::tuple<float, int> processBLEDevice(BLEDevice peripheral) {
   // Function to process the devices found during scan and pull the proper
   // values from the Manufacturer data.
   if (peripheral.hasManufacturerData()) {
     int ManuDataLen = peripheral.manufacturerDataLength();
     uint8_t manuDataBuffer[ManuDataLen];
+    int status = 1;
     // retrieve the data.... using manufacturerData etc.
     if (peripheral.manufacturerData(manuDataBuffer, ManuDataLen)) {
       float pressureInPSI = (((manuDataBuffer[10]) << 16 | (manuDataBuffer[9]) << 8 | manuDataBuffer[8]) / 100000.0) * 14.5037738;
-      float tempInF = (((manuDataBuffer[13]) << 8 | manuDataBuffer[12]) / 100) * 1.8 + 32;
       float battery = manuDataBuffer[16];
-      return std::make_tuple(pressureInPSI, tempInF, battery);
-    } else {
-      return std::make_tuple(0.00, 0.00, 0);
+      if (battery <= 20) {
+        status = 0;
+      }
+      
+      return std::make_tuple(pressureInPSI, status);
+    } 
+    else {
+      return std::make_tuple(0.00, 0);
     }
-  } else {
-    return std::make_tuple(0.00, 0.00, 0);
+  }
+  else {
+    return std::make_tuple(0.00,  0);
   }
 }
 
 void setup() {
-
   Modulino.begin();
   leds.begin();
   Serial.begin(115200);
   while (!Serial) {
-    leds.set(SERIAL_LED, RED, BRIGHTNESS);
-    leds.show();
+    setLED(SERIAL_LED, RED);
   }
-  leds.set(SERIAL_LED, GREEN, BRIGHTNESS);
-  leds.show();
-  // Start Modulino devices
-  //Modulino.begin();
+  setLED(SERIAL_LED, GREEN);
 
   if (!thermo.begin()) {
     Serial.println("Thermo Start Failed.");
@@ -112,11 +112,10 @@ void setup() {
 
   if (!matrix.begin()) {
     Serial.println("Matrix");
-    leds.set(MATRIX_LED, RED, BRIGHTNESS);
-    leds.show();
-  } else {
-    leds.set(MATRIX_LED, GREEN, BRIGHTNESS);
-    leds.show();
+    setLED(MATRIX_LED, RED);
+  } 
+  else {
+    setLED(MATRIX_LED, GREEN);
   }
   if (!buzzer.begin()) {
     Serial.println("Buzzer failed to start");
@@ -126,23 +125,21 @@ void setup() {
   //Start CAN
   if (!CAN.begin(CanBitRate::BR_1000k)) {
     Serial.println("CAN.begin(...) failed.");
-    leds.set(CAN_LED, RED, BRIGHTNESS);
-    leds.show();
+    setLED(CAN_LED, RED);
     //while(1);
-  } else {
-    leds.set(CAN_LED, GREEN, BRIGHTNESS);
-    leds.show();
+  } 
+  else {
+    setLED(CAN_LED, GREEN);
   }
 
   // Start BLE
   if (!BLE.begin()) {
     Serial.println("starting Bluetooth® Low Energy module failed!");
-    leds.set(BLE_LED, RED, BRIGHTNESS);
-    leds.show();
+    setLED(BLE_LED, RED);
     //while (1);
-  } else {
-    leds.set(BLE_LED, GREEN, BRIGHTNESS);
-    leds.show();
+  } 
+  else {
+    setLED(BLE_LED, GREEN);
   }
   // Serial.println("Bluetooth® Low Energy Central scan");
   // start scanning for peripheral
@@ -160,6 +157,7 @@ void setup() {
     Serial.println(read_sensor);
     Serial.println("Failed to create Read Sensor Loop");
   }
+  
   auto const tpms_scanner = xTaskCreate(
     TPMSScanner,
     "TPMSScanner",
@@ -171,6 +169,7 @@ void setup() {
     Serial.println(tpms_scanner);
     Serial.println("Failed to create TPMS Scanner loop");
   }
+  
   auto const matrix_draw = xTaskCreate(
     MatrixDraw,
     "MatrixDraw",
@@ -182,6 +181,7 @@ void setup() {
     Serial.println(matrix_draw);
     Serial.println("Failed to create matrix draw loop");
   }
+ 
   vTaskStartScheduler();
 }
 
@@ -199,8 +199,7 @@ void ReadSensor(void *parameters) {
     sendCANMsg(voltage2, 0x1E206629);
 
     // Read the temperature Sensor
-    celsius = thermo.getTemperature();
-    fahrenheit = (celsius * 9 / 5) + 32;
+    fahrenheit = (thermo.getTemperature() * 9 / 5) + 32;
     humidity = thermo.getHumidity();
     // Send Can messages
     sendCANMsg(fahrenheit, 0x1E20A629);
@@ -241,69 +240,69 @@ void TPMSScanner(void *parameters) {
     if (peripheral) {
       String address = peripheral.address();
       if (address == "80:ea:ca:50:2e:d8") {
-        std::tuple<float, float, float> values = processBLEDevice(peripheral);
+        std::tuple<float, int> values = processBLEDevice(peripheral);
         lf_press = std::get<0>(values);
-        lf_temp = std::get<1>(values);
-        lf_battery = std::get<2>(values);
-      } else if (address == "81:ea:ca:50:2e:61") {
-        std::tuple<float, float, float> values = processBLEDevice(peripheral);
+        lf_status = std::get<1>(values);
+      } 
+      else if (address == "81:ea:ca:50:2e:61") {
+        std::tuple<float, int> values = processBLEDevice(peripheral);
         rf_press = std::get<0>(values);
-        rf_temp = std::get<1>(values);
-        rf_battery = std::get<2>(values);
-      } else if (address == "82:ea:ca:50:2d:18") {
-        std::tuple<float, float, float> values = processBLEDevice(peripheral);
+        rf_status = std::get<1>(values);
+      } 
+      else if (address == "82:ea:ca:50:2d:18") {
+        std::tuple<float, int> values = processBLEDevice(peripheral);
         lr_press = std::get<0>(values);
-        lr_temp = std::get<1>(values);
-        lr_battery = std::get<2>(values);
-      } else if (address == "83:ea:ca:50:2d:34") {
-        std::tuple<float, float, float> values = processBLEDevice(peripheral);
+        lr_status = std::get<1>(values);
+      } 
+      else if (address == "83:ea:ca:50:2d:34") {
+        std::tuple<float, int> values = processBLEDevice(peripheral);
         rr_press = std::get<0>(values);
-        rr_temp = std::get<1>(values);
-        rr_battery = std::get<2>(values);
-      } else {
+        rr_status = std::get<1>(values);
+      } 
+      else {
         //Serial.println("Address " + address + " Didn't match");
       }
     }
     //Serial.println("No Devices Found");
-    sendCANMsg(lf_press, 0x1E202627);
-    sendCANMsg(lf_temp, 0x1E212627);
-    sendCANMsg(lf_battery, 0x1E202628);
     if (lf_press < 30 && lf_press > 0) {
-      leds.set(LF_TIRE, RED, BRIGHTNESS);
-      leds.show();
-    } else {
-      leds.set(LF_TIRE, GREEN, BRIGHTNESS);
+      setLED(LF_TIRE, RED);
+      lf_status = 0;
+    } 
+    else {
+      setLED(LF_TIRE, GREEN);
     }
-
-    sendCANMsg(rf_press, 0x1E206627);
-    sendCANMsg(rf_temp, 0x1E216627);
-    sendCANMsg(rf_battery, 0x1E206628);
+    sendCANMsg(lf_press, 0x1E202627);
+    sendCANMsg(lf_status, 0x1E212627);
+    
     if (rf_press < 30 && rf_press > 0) {
-      
-      
-    } else {
-      leds.set(RF_TIRE, GREEN, BRIGHTNESS);
+      setLED(RF_TIRE, RED);
+      rf_status = 0;
+    } 
+    else {
+      setLED(RF_TIRE, GREEN);
     }
+    sendCANMsg(rf_press, 0x1E206627);
+    sendCANMsg(rf_status, 0x1E216627);
 
-    sendCANMsg(lr_press, 0x1E20A627);
-    sendCANMsg(lr_temp, 0x1E21A627);
-    sendCANMsg(lr_battery, 0x1E20A628);
     if (lr_press < 30 && lf_press > 0) {
-      leds.set(LR_TIRE, RED, BRIGHTNESS);
-      leds.show();
-    } else {
-      leds.set(LR_TIRE, GREEN, BRIGHTNESS);
+      setLED(LR_TIRE, RED);
+      lr_status = 0;
+    } 
+    else {
+      setLED(LR_TIRE, GREEN);
     }
+    sendCANMsg(lr_press, 0x1E20A627);
+    sendCANMsg(lr_status, 0x1E21A627);
 
-    sendCANMsg(rr_press, 0x1E20E627);
-    sendCANMsg(rr_temp, 0x1E21E627);
-    sendCANMsg(rr_battery, 0x1E20E628);
     if (rr_press < 30 && rr_press > 0) {
-      leds.set(RR_TIRE, RED, BRIGHTNESS);
-      leds.show();
-    } else {
-      leds.set(RR_TIRE, GREEN, BRIGHTNESS);
+      setLED(RR_TIRE, RED);
+      rr_status = 0;
+    } 
+    else {
+      setLED(RR_TIRE, GREEN);
     }
+    sendCANMsg(rr_press, 0x1E20E627);
+    sendCANMsg(rr_status, 0x1E21E627);
 
     vTaskDelay(700 / portTICK_PERIOD_MS);
   }
