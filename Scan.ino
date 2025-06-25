@@ -16,7 +16,7 @@ String RFTireAddress = "98:58:8A:18:61:05";
 String LRTireAddress = "98:58:8A:18:64:F1";
 String RRTireAddress = "98:58:8A:18:61:35";
 
-String tireAddresses[] = {LFTireAddress, RFTireAddress, LRTireAddress, RRTireAddress};
+String tireAddresses[] = { LFTireAddress, RFTireAddress, LRTireAddress, RRTireAddress };
 
 void floatToHexArray(float value, unsigned char *hexArray) {
   // Function to convert float values to hex arrays to be sent as a CAN message.
@@ -40,7 +40,7 @@ void sendCANMsg(float value, uint32_t canId) {
   delay(5);
 }
 
-std::tuple<float, int> processBLEDevice(BLEDevice peripheral) {
+std::tuple<float, float, int> processBLEDevice(BLEDevice peripheral) {
   // Function to process the devices found during scan and pull the proper
   // values from the Manufacturer data.
   if (peripheral.hasManufacturerData()) {
@@ -50,17 +50,16 @@ std::tuple<float, int> processBLEDevice(BLEDevice peripheral) {
     // retrieve the data.... using manufacturerData etc.
     if (peripheral.manufacturerData(manuDataBuffer, ManuDataLen)) {
       float pressureInPSI = (((manuDataBuffer[20]) << 8 | manuDataBuffer[21]) / 10000.0) * 14.5037738;
+      float tempInF = ((((manuDataBuffer[22]) << 8 | manuDataBuffer[23]) / 100) * 1.8) + 32;
       if (pressureInPSI < 30 && pressureInPSI > 0) {
         status = 0;
       }
-      return std::make_tuple(pressureInPSI, status);
-    } 
-    else {
-      return std::make_tuple(0.00, 0);
+      return std::make_tuple(pressureInPSI, tempInF, status);
+    } else {
+      return std::make_tuple(0.00, 0.00, 0);
     }
-  } 
-  else {
-    return std::make_tuple(0.00, 0);
+  } else {
+    return std::make_tuple(0.00, 0.00, 0);
   }
 }
 
@@ -75,8 +74,7 @@ void setup() {
     Serial.println("CAN.begin(...) failed.");
     while (1)
       ;
-  } 
-  else {
+  } else {
     Serial.println("Can Started.");
   }
 
@@ -84,8 +82,7 @@ void setup() {
   if (!BLE.begin()) {
     Serial.println("starting Bluetooth® Low Energy module failed!");
     //while (1);
-  } 
-  else {
+  } else {
     Serial.println("Bluetooth Started.");
   }
   BLE.scan();
@@ -144,13 +141,14 @@ void TPMSScanner(void *parameters) {
 
   struct Tire {
     float pressure;
+    float temp;
     int status;
   };
 
-  Tire lfTire = {.pressure = 0.0, .status = 1};
-  Tire rfTire = {.pressure = 0.0, .status = 1};
-  Tire lrTire = {.pressure = 0.0, .status = 1};
-  Tire rrTire = {.pressure = 0.0, .status = 1};
+  Tire lfTire = { .pressure = 0.0, .temp = 0, .status = 1 };
+  Tire rfTire = { .pressure = 0.0, .temp = 0, .status = 1 };
+  Tire lrTire = { .pressure = 0.0, .temp = 0, .status = 1 };
+  Tire rrTire = { .pressure = 0.0, .temp = 0, .status = 1 };
 
   for (;;) {
     BLEDevice peripheral = BLE.available();
@@ -159,37 +157,42 @@ void TPMSScanner(void *parameters) {
       bleAddress.toUpperCase();
       // Serial.println(bleAddress);
       if (bleAddress == LFTireAddress) {
-        std::tuple<float, int> values = processBLEDevice(peripheral);
+        std::tuple<float, float, int> values = processBLEDevice(peripheral);
         lfTire.pressure = std::get<0>(values);
-        lfTire.status = std::get<1>(values);
-      } 
-      else if (bleAddress == RFTireAddress) {
-        std::tuple<float, int> values = processBLEDevice(peripheral);
+        lfTire.temp = std::get<1>(values);
+        lfTire.status = std::get<2>(values);
+      } else if (bleAddress == RFTireAddress) {
+        std::tuple<float, float, int> values = processBLEDevice(peripheral);
         rfTire.pressure = std::get<0>(values);
-        rfTire.status = std::get<1>(values);
-      } 
-      else if (bleAddress == LRTireAddress) {
-        std::tuple<float, int> values = processBLEDevice(peripheral);
+        rfTire.temp = std::get<1>(values);
+        rfTire.status = std::get<2>(values);
+      } else if (bleAddress == LRTireAddress) {
+        std::tuple<float, float, int> values = processBLEDevice(peripheral);
         lrTire.pressure = std::get<0>(values);
-        lrTire.status = std::get<1>(values);
-      } 
-      else if (bleAddress == RRTireAddress) {
-        std::tuple<float, int> values = processBLEDevice(peripheral);
+        lrTire.temp = std::get<1>(values);
+        lrTire.status = std::get<2>(values);
+      } else if (bleAddress == RRTireAddress) {
+        std::tuple<float, float, int> values = processBLEDevice(peripheral);
         rrTire.pressure = std::get<0>(values);
-        rrTire.status = std::get<1>(values);
+        rrTire.temp = std::get<1>(values);
+        rrTire.status = std::get<2>(values);
       }
     }
     sendCANMsg(lfTire.pressure, 0x1E202627);
     sendCANMsg(lfTire.status, 0x1E212627);
+    sendCANMsg(lfTire.temp, 0x1E202004);
 
     sendCANMsg(rfTire.pressure, 0x1E206627);
     sendCANMsg(rfTire.status, 0x1E216627);
+    sendCANMsg(rfTire.temp, 0x1E206004);
 
     sendCANMsg(lrTire.pressure, 0x1E20A627);
     sendCANMsg(lrTire.status, 0x1E21A627);
+    sendCANMsg(lrTire.temp, 0x1E20A004);
 
     sendCANMsg(rrTire.pressure, 0x1E20E627);
     sendCANMsg(rrTire.status, 0x1E21E627);
+    sendCANMsg(rrTire.temp, 0x1E20E004);
 
     vTaskDelay(500 / portTICK_PERIOD_MS);
   }
